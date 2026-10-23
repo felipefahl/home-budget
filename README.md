@@ -6,16 +6,16 @@ App de finanças pessoais para um casal com contas em **Portugal (EUR)** e no **
 - **Banco e login:** Supabase (Postgres + login Google), acesso restrito a uma lista de e-mails via RLS
 - **Câmbio:** [Frankfurter](https://frankfurter.dev) (taxas do Banco Central Europeu)
 
-Documentos: [requisitos](https://claude.ai/artifact/DL6tzABuzUxHcGYLqy4VAh) (privado) · [plano técnico](docs/superpowers/plans/2026-10-23-home-budget-v1.md)
+Documentos: [requisitos](https://claude.ai/artifact/DL6tzABuzUxHcGYLqy4VAh) (privado) · [plano técnico](docs/superpowers/plans/2026-10-23-home-budget-v1.md) · [roadmap: o que falta e próximos passos](ROADMAP.md)
 
 ## O que o app faz
 
 | Tela | Para quê |
 |---|---|
-| **Painel** | Resultado do mês por país e no total (EUR ou BRL), meta de poupança, para onde foi o dinheiro, alertas de essenciais acima da média, últimos 12 meses, previsão dos próximos 3 e simulação de cortes |
-| **Lançamentos** | Entradas, saídas, transferências entre países (com taxa), investimentos e ajustes de saldo; filtros, alteração em massa e exportação para Excel |
+| **Painel** | Resultado do mês por país e no total (EUR ou BRL), meta de poupança, para onde foi o dinheiro, limites por categoria, comparação com o mês anterior e o ano passado, alertas de essenciais acima da média, últimos 12 meses, previsão dos próximos 3 e simulação de cortes |
+| **Lançamentos** | Entradas, saídas, transferências entre países (com taxa), investimentos e ajustes de saldo; simulação das faturas antes de uma compra parcelada; filtros, alteração em massa e exportação para Excel |
 | **Contas** | Saldos por país, faturas dos cartões e quanto já está comprometido em parcelas |
-| **Categorias** | Essenciais e ajustáveis, subcategorias, renomear e apagar movendo os lançamentos |
+| **Categorias** | Essenciais e ajustáveis, subcategorias, limite mensal, renomear e apagar movendo os lançamentos |
 | **Lixeira** | Restaurar o que foi apagado nos últimos 30 dias |
 
 ## Comandos
@@ -49,7 +49,8 @@ Depois, no **SQL Editor**:
 
 1. Rodar `supabase/migrations/0001_init.sql` inteiro.
 2. Rodar `supabase/migrations/0002_reset_trial.sql` inteiro (só cria os comandos de reset, não apaga nada).
-3. Liberar os e-mails, em minúsculas:
+3. Rodar `supabase/migrations/0003_category_limits.sql` (limite mensal nas categorias).
+4. Liberar os e-mails, em minúsculas:
    ```sql
    insert into allowed_emails values ('voce@gmail.com'), ('ela@gmail.com');
    ```

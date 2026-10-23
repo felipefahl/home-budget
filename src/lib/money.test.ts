@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { formatCents, parseAmount, toInput } from './money'
-import { billDueDate, replanInstallments, splitInstallments } from './installments'
+import { billDueDate, replanInstallments, simulatePurchase, splitInstallments } from './installments'
 
 test('parseAmount reads pt-BR input as cents', () => {
   expect(parseAmount('1.234,56')).toBe(123456)
@@ -58,4 +58,18 @@ test('replanInstallments keeps paid parcels and re-splits the rest', () => {
     { installment_no: 4, amount_cents: -20000, date: '2027-04-20' },
   ])
   expect(() => replanInstallments({ parcels, purchaseDate: '2027-01-05', closingDay: 10, dueDay: 20, newTotal: -60000, newCount: 2, today: '2027-03-01' })).toThrow()
+})
+
+test('simulatePurchase adds the new parcels on top of what each bill already has', () => {
+  const existing = [
+    { date: '2027-03-20', amount_cents: -20000 },
+    { date: '2027-04-20', amount_cents: -20000 },
+    { date: '2027-04-20', amount_cents: 5000 }, // a refund on the card doesn't count as committed
+  ]
+  // bought 2027-03-15, after closing on the 10th: first bill is April
+  expect(simulatePurchase({ purchaseDate: '2027-03-15', closingDay: 10, dueDay: 20, totalCents: 30000, count: 3, existing })).toEqual([
+    { month: '2027-04', existing: 20000, added: 10000, total: 30000 },
+    { month: '2027-05', existing: 0, added: 10000, total: 10000 },
+    { month: '2027-06', existing: 0, added: 10000, total: 10000 },
+  ])
 })

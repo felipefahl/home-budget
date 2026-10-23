@@ -17,6 +17,7 @@ beforeAll(async () => {
   `)
   await db.exec(sql('0001_init.sql'))
   await db.exec(sql('0002_reset_trial.sql'))
+  await db.exec(sql('0003_category_limits.sql'))
   acc = (await db.query<{ id: string }>(`insert into accounts (name, country, kind, opening_balance_cents) values ('Conta PT', 'PT', 'bank', 100000) returning id`)).rows[0].id
   await db.query(`
     insert into entries (kind, account_id, amount_cents, date, status, deleted_at) values

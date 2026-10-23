@@ -4,7 +4,7 @@ import { addMonths, catLabel, check, monthOf, today } from '../data'
 import { COUNTRY, fmtMonth } from '../labels'
 import { convert, fetchRates, rateOn, type Rates } from '../lib/fx'
 import { formatCents } from '../lib/money'
-import { monthSummary, type Summary } from '../lib/summary'
+import { delta, limitStatus, monthSummary, type Summary } from '../lib/summary'
 import { supabase } from '../supabase'
 import type { Country, Currency, Entry } from '../types'
 
@@ -40,11 +40,11 @@ export default function Dashboard({ data, reload }: PageProps) {
   const last3 = [1, 2, 3].map(i => addMonths(month, -i))
 
   // spend per category in the chosen currency
-  const byCategory = (m: string) => {
+  const byCategory = (m: string, cur: Currency = currency) => {
     const out = new Map<string | null, number>()
     for (const e of inMonth(m)) {
       if (e.kind !== 'expense' || e.deleted_at || e.status === 'pending') continue
-      out.set(e.category_id, (out.get(e.category_id) ?? 0) - convert(e.amount_cents, accCur(e.account_id), currency, rateOn(rates, e.date)))
+      out.set(e.category_id, (out.get(e.category_id) ?? 0) - convert(e.amount_cents, accCur(e.account_id), cur, rateOn(rates, e.date)))
     }
     return out
   }
@@ -53,7 +53,7 @@ export default function Dashboard({ data, reload }: PageProps) {
   const catName = (id: string | null) => catLabel(id, data.categories) || 'Sem categoria'
 
   // essentials more than 20% above their 3-month mean
-  const history = last3.map(byCategory)
+  const history = last3.map(m => byCategory(m))
   // mean over the months that had spending in it, so months before the app existed don't count as zero
   const meanOf = (id: string | null) => {
     const vals = history.map(h => h.get(id) ?? 0).filter(v => v > 0)
@@ -62,6 +62,34 @@ export default function Dashboard({ data, reload }: PageProps) {
   const alerts = [...cats]
     .filter(([id, v]) => catType(id) !== 'adjustable' && meanOf(id) > 0 && v > meanOf(id) * 1.2)
     .map(([id, v]) => ({ name: catName(id), v, mean: meanOf(id), up: v / meanOf(id) - 1 }))
+
+  // monthly limits, in each limit's own currency; subcategories count toward the parent
+  const limits = data.categories.filter(c => c.monthly_limit_cents && !c.archived_at).map(c => {
+    const spentBy = byCategory(month, c.limit_currency)
+    const ids = [c.id, ...data.categories.filter(x => x.parent_id === c.id).map(x => x.id)]
+    const spent = ids.reduce((s, id) => s + (spentBy.get(id) ?? 0), 0)
+    return { c, spent, ...limitStatus(spent, c.monthly_limit_cents!) }
+  }).sort((a, b) => b.pct - a.pct)
+
+  // this month against last month and the same month last year
+  const prev = addMonths(month, -1), lastYear = addMonths(month, -12)
+  const [sNow, sPrev, sYear] = [month, prev, lastYear].map(m => sum(inMonth(m), currency))
+  const [cNow, cPrev, cYear] = [month, prev, lastYear].map(m => byCategory(m))
+  const compareCats = [...new Set([...cNow.keys(), ...cPrev.keys(), ...cYear.keys()])]
+    .sort((a, b) => (cNow.get(b) ?? 0) - (cNow.get(a) ?? 0)).slice(0, 8)
+  const compareRows: { label: string; now: number; prev: number; year: number; upIsGood: boolean; strong?: boolean }[] = [
+    { label: 'Entradas', now: sNow.income, prev: sPrev.income, year: sYear.income, upIsGood: true, strong: true },
+    { label: 'Essenciais', now: sNow.essential, prev: sPrev.essential, year: sYear.essential, upIsGood: false, strong: true },
+    { label: 'Ajustáveis', now: sNow.adjustable, prev: sPrev.adjustable, year: sYear.adjustable, upIsGood: false, strong: true },
+    { label: 'Sobrou', now: sNow.result, prev: sPrev.result, year: sYear.result, upIsGood: true, strong: true },
+    ...compareCats.map(id => ({ label: catName(id), now: cNow.get(id) ?? 0, prev: cPrev.get(id) ?? 0, year: cYear.get(id) ?? 0, upIsGood: false })),
+  ]
+  const change = (now: number, before: number, upIsGood: boolean) => {
+    const d = delta(now, before)
+    if (d === null || !Number.isFinite(d)) return <span className="muted">—</span>
+    const good = upIsGood ? d >= 0 : d <= 0
+    return <span className={Math.abs(d) < 0.005 ? 'muted' : good ? 'pos' : 'neg'}>{d > 0 ? '+' : ''}{pct(d)}</span>
+  }
 
   const twelve = Array.from({ length: 12 }, (_, i) => addMonths(month, i - 11)).map(m => ({ m, s: sum(inMonth(m), currency) }))
   const avg = (k: 'essential' | 'adjustable') => {
@@ -135,11 +163,46 @@ export default function Dashboard({ data, reload }: PageProps) {
           {alerts.map(a => <p key={a.name} className="warn small">{a.name} está {pct(a.up)} acima da média dos últimos meses: {money(a.v)} contra {money(Math.round(a.mean))}.</p>)}
         </div>
         <div className="card">
+          <h2 style={{ marginTop: 0 }}>Limites do mês</h2>
+          {!limits.length && <p className="muted small">Nenhum limite ainda. Defina na aba Categorias, nas ajustáveis.</p>}
+          {limits.map(l => (
+            <div key={l.c.id} style={{ marginBottom: 10 }}>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <span>{l.c.name}</span>
+                <span className={`small ${l.level === 'over' ? 'neg' : l.level === 'warn' ? 'warn' : 'muted'}`}>
+                  {formatCents(l.spent, l.c.limit_currency)} de {formatCents(l.c.monthly_limit_cents!, l.c.limit_currency)} ({pct(l.pct)})
+                  {l.level === 'over' ? ' · passou do limite' : l.level === 'warn' ? ' · perto do limite' : ''}
+                </span>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: 'var(--line)' }} role="progressbar" aria-valuenow={Math.round(l.pct * 100)} aria-label={`Limite de ${l.c.name}`}>
+                <div style={{ height: 6, borderRadius: 3, width: `${Math.min(100, l.pct * 100)}%`, background: l.level === 'over' ? 'var(--bad)' : l.level === 'warn' ? 'var(--warn)' : 'var(--good)' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="card">
           <h2 style={{ marginTop: 0 }}>E se cortarmos os ajustáveis?</h2>
           <label>Reduzir ajustáveis em (%)<input type="number" min={0} max={100} value={sim} onChange={e => setSim(Number(e.target.value))} /></label>
           <p>Média dos ajustáveis nos últimos 3 meses: {money(Math.round(avg('adjustable')))}.<br />
             Poupariam <b>{money(Math.round(avg('adjustable') * sim / 100))}</b> a mais por mês.</p>
         </div>
+      </div>
+
+      <div className="card table-wrap">
+        <h2 style={{ marginTop: 0 }}>Comparar meses</h2>
+        <table className="stack-sm">
+          <thead><tr><th></th><th className="num">{fmtMonth(month)}</th><th className="num">{fmtMonth(prev)}</th><th className="num">variação</th><th className="num">{fmtMonth(lastYear)}</th><th className="num">variação</th></tr></thead>
+          <tbody>{compareRows.map(r => (
+            <tr key={r.label} style={r.strong ? { fontWeight: 600 } : undefined}>
+              <td className="full">{r.label}</td>
+              <td className="num" data-label={fmtMonth(month)}>{money(r.now)}</td>
+              <td className="num" data-label={fmtMonth(prev)}>{money(r.prev)}</td>
+              <td className="num" data-label="vs mês anterior">{change(r.now, r.prev, r.upIsGood)}</td>
+              <td className="num" data-label={fmtMonth(lastYear)}>{money(r.year)}</td>
+              <td className="num" data-label="vs ano passado">{change(r.now, r.year, r.upIsGood)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
       </div>
 
       <div className="card">

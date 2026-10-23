@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite'
 import { readFileSync } from 'node:fs'
 import { beforeAll, expect, test } from 'vitest'
 
-const migration = readFileSync(new URL('../migrations/0001_init.sql', import.meta.url), 'utf8')
+const sql = (f: string) => readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8')
 const ALLOWED = '00000000-0000-0000-0000-000000000001'
 const db = new PGlite()
 
@@ -20,7 +20,8 @@ beforeAll(async () => {
     create function auth.uid() returns uuid language sql stable as
       $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
   `)
-  await db.exec(migration)
+  await db.exec(sql('0001_init.sql'))
+  await db.exec(sql('0003_category_limits.sql'))
   await db.exec(`
     -- no blanket grants here: the migration's own grants must be enough
     -- (same as a project created with "Automatically expose new tables" off)
@@ -72,4 +73,12 @@ test('card account requires closing and due day', async () => {
   await expect(db.query(`insert into accounts (name, country, kind) values ('Cartão', 'PT', 'card')`)).rejects.toThrow(
     /check constraint/,
   )
+})
+
+test('category limit: app users can set it, zero or negative is rejected', async () => {
+  await as('ok@gmail.com', ALLOWED)
+  await db.query(`update categories set monthly_limit_cents = 30000, limit_currency = 'BRL' where name = 'Viagens'`)
+  const { rows } = await db.query<{ monthly_limit_cents: number; limit_currency: string }>(`select monthly_limit_cents, limit_currency from categories where name = 'Viagens'`)
+  expect(rows[0]).toEqual({ monthly_limit_cents: 30000, limit_currency: 'BRL' })
+  await expect(db.query(`update categories set monthly_limit_cents = 0 where name = 'Viagens'`)).rejects.toThrow(/check constraint/)
 })

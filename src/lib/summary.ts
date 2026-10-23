@@ -34,3 +34,12 @@ export function monthSummary(entries: Entry[], o: SummaryOptions): Summary {
   const result = income - essential - adjustable - (o.includeInvestments ? investment : 0)
   return { income, essential, adjustable, investment, result, savingsPct: income > 0 ? result / income : 0 }
 }
+
+/** Spend against a monthly limit: warn from 80%, over from 100%. */
+export function limitStatus(spent: number, limit: number): { pct: number; level: 'ok' | 'warn' | 'over' } {
+  const pct = spent / limit
+  return { pct, level: pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok' }
+}
+
+/** Relative change from `before` to `now`; null when `before` is 0 (nothing to compare). */
+export const delta = (now: number, before: number): number | null => (before === 0 ? null : (now - before) / before)

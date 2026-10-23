@@ -22,6 +22,8 @@ export interface Category {
   type: CategoryType
   parent_id: string | null
   archived_at: string | null
+  monthly_limit_cents: number | null
+  limit_currency: Currency
 }
 
 export interface Recurrence {

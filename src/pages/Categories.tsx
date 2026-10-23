@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { PageProps } from '../App'
 import { catLabel, check } from '../data'
 import { TYPE } from '../labels'
+import { parseAmount, toInput } from '../lib/money'
 import { supabase } from '../supabase'
 import type { Category, CategoryType } from '../types'
 
@@ -60,6 +61,23 @@ export default function Categories({ data, reload, notify }: PageProps) {
                 <td>
                   {c.parent_id && <span className="muted">{data.categories.find(x => x.id === c.parent_id)?.name} › </span>}
                   <input defaultValue={c.name} aria-label="Nome" onBlur={e => e.target.value.trim() && e.target.value !== c.name && update(c, { name: e.target.value.trim() })} />
+                </td>
+                <td>
+                  {/* limits live on top-level adjustable categories; subcategory spend counts toward the parent */}
+                  {t === 'adjustable' && !c.parent_id && (
+                    <span className="row" style={{ flexWrap: 'nowrap' }}>
+                      <input inputMode="decimal" placeholder="Limite/mês" aria-label={`Limite mensal de ${c.name}`} style={{ width: 110 }}
+                        defaultValue={c.monthly_limit_cents ? toInput(c.monthly_limit_cents) : ''}
+                        onBlur={e => {
+                          const v = e.target.value.trim() ? parseAmount(e.target.value) : null
+                          if (v !== null && !(v > 0)) return notify({ msg: 'Limite inválido: use um valor maior que zero, ou deixe vazio.' })
+                          if (v !== c.monthly_limit_cents) update(c, { monthly_limit_cents: v })
+                        }} />
+                      <select value={c.limit_currency} aria-label="Moeda do limite" onChange={e => update(c, { limit_currency: e.target.value as Category['limit_currency'] })}>
+                        <option>EUR</option><option>BRL</option>
+                      </select>
+                    </span>
+                  )}
                 </td>
                 <td className="num">
                   <button className="link" onClick={() => update(c, { type: t === 'essential' ? 'adjustable' : 'essential' })}>

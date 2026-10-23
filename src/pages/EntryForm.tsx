@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import type { Toast } from '../App'
 import { putBack, scopeIds, softDelete, type Scope } from '../actions'
 import { byLabel, catLabel, check, monthOf, today, type Data } from '../data'
-import { fmtDate, KIND } from '../labels'
-import { billDueDate, replanInstallments, splitInstallments } from '../lib/installments'
+import { fmtDate, fmtMonth, KIND } from '../labels'
+import { billDueDate, replanInstallments, simulatePurchase, splitInstallments } from '../lib/installments'
 import { formatCents, parseAmount, toInput } from '../lib/money'
 import { supabase } from '../supabase'
 import type { Entry, EntryKind } from '../types'
@@ -185,9 +185,22 @@ export default function EntryForm({ data, entry, onDone, onCancel }: Props) {
           )}
         </div>
         {kind === 'expense' && isCard && !entry && Number(count) > 1 && parseAmount(amount) > 0 && account && (
-          <p className="small muted">
-            {Number(count)}x de {formatCents(Math.ceil(parseAmount(amount) / Number(count)), account.currency)}, a primeira na fatura de {fmtDate(billDueDate(date, account.closing_day!, account.due_day!))}.
-          </p>
+          <div className="small">
+            <p className="muted" style={{ margin: '0 0 4px' }}>
+              {Number(count)}x de {formatCents(Math.ceil(parseAmount(amount) / Number(count)), account.currency)}, a primeira na fatura de {fmtDate(billDueDate(date, account.closing_day!, account.due_day!))}. Como ficam as faturas:
+            </p>
+            <table>
+              <thead><tr><th>Fatura</th><th className="num">Já tem</th><th className="num">Esta compra</th><th className="num">Total</th></tr></thead>
+              <tbody>{simulatePurchase({
+                purchaseDate: date, closingDay: account.closing_day!, dueDay: account.due_day!,
+                totalCents: parseAmount(amount), count: Math.min(48, Number(count)),
+                existing: data.entries.filter(e => e.account_id === account.id && !e.deleted_at),
+              }).map(r => (
+                <tr key={r.month}><td>{fmtMonth(r.month)}</td><td className="num">{formatCents(r.existing, account.currency)}</td>
+                  <td className="num">{formatCents(r.added, account.currency)}</td><td className="num"><b>{formatCents(r.total, account.currency)}</b></td></tr>
+              ))}</tbody>
+            </table>
+          </div>
         )}
         {showCategory && (
           <label>Categoria<select value={categoryId} onChange={e => setCategoryId(e.target.value)}>

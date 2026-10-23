@@ -45,3 +45,17 @@ export function replanInstallments(p: {
     }),
   }
 }
+
+/** What a new card purchase does to each future bill, on top of what is already booked there. */
+export function simulatePurchase(p: {
+  purchaseDate: string; closingDay: number; dueDay: number; totalCents: number; count: number
+  existing: { date: string; amount_cents: number }[]
+}): { month: string; existing: number; added: number; total: number }[] {
+  return splitInstallments(p.totalCents, p.count).map((added, k) => {
+    const month = billDueDate(p.purchaseDate, p.closingDay, p.dueDay, k).slice(0, 7)
+    const existing = p.existing
+      .filter(e => e.amount_cents < 0 && e.date.slice(0, 7) === month)
+      .reduce((s, e) => s - e.amount_cents, 0)
+    return { month, existing, added, total: existing + added }
+  })
+}

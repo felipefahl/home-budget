@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { convert, rateOn } from './fx'
 import { suggestedAmount } from './recurrence'
-import { monthSummary } from './summary'
+import { delta, limitStatus, monthSummary } from './summary'
 import type { Entry } from '../types'
 
 const rates = { '2027-01-08': 6, '2027-01-11': 6.5 } // EUR -> BRL, Fri and Mon
@@ -69,4 +69,16 @@ test('suggestedAmount is the mean of the last 3', () => {
   expect(suggestedAmount([100, 200, 300, 400])).toBe(300)
   expect(suggestedAmount([100, 101])).toBe(101)
   expect(suggestedAmount([])).toBe(0)
+})
+
+test('limitStatus: warn from 80%, over from 100%', () => {
+  expect(limitStatus(7900, 10000)).toEqual({ pct: 0.79, level: 'ok' })
+  expect(limitStatus(8000, 10000)).toEqual({ pct: 0.8, level: 'warn' })
+  expect(limitStatus(10000, 10000)).toEqual({ pct: 1, level: 'over' })
+})
+
+test('delta between months; null when there is nothing to compare', () => {
+  expect(delta(15000, 10000)).toBe(0.5)
+  expect(delta(5000, 10000)).toBe(-0.5)
+  expect(delta(5000, 0)).toBeNull()
 })
