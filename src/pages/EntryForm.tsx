@@ -124,9 +124,13 @@ export default function EntryForm({ data, entry, onDone, onCancel }: Props) {
     const before = data.entries.filter(x => ids.includes(x.id))
     // amount, date and account only change on this row; text fields follow the scope
     check(await supabase.from('entries').update(e.kind === 'transfer' ? { description: shared.description, tags: shared.tags } : shared).in('id', ids))
+    // a card expense keeps the purchase date and moves to that purchase's bill, same as on create
+    const cardExpense = e.kind === 'expense' && isCard && account
+    const dates = isInstallment ? {}
+      : cardExpense ? { purchase_date: date, date: billDueDate(date, account.closing_day!, account.due_day!) }
+      : { date, purchase_date: null }
     check(await supabase.from('entries').update({
-      amount_cents: signed, account_id: accountId,
-      ...(isInstallment ? {} : { date }), status: 'confirmed',
+      amount_cents: signed, account_id: accountId, ...dates, status: 'confirmed',
     }).eq('id', e.id))
     if (recurrence && scope === 'next') {
       check(await supabase.from('recurrences').update({ description: shared.description, category_id: shared.category_id, amount_cents: signed, account_id: accountId }).eq('id', recurrence.id))

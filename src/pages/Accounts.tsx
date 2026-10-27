@@ -20,6 +20,37 @@ export default function Accounts({ data, reload, notify }: PageProps) {
   const balance = (a: Account) => a.opening_balance_cents + live.filter(e => e.account_id === a.id && e.date <= now).reduce((s, e) => s + e.amount_cents, 0)
   const bill = (a: Account, month: string) => live.filter(e => e.account_id === a.id && monthOf(e.date) === month && e.amount_cents < 0).reduce((s, e) => s - e.amount_cents, 0)
   const committed = (a: Account) => live.filter(e => e.account_id === a.id && e.date > now && e.amount_cents < 0).reduce((s, e) => s - e.amount_cents, 0)
+  const paid = (a: Account, month: string) => live.filter(e => e.account_id === a.id && monthOf(e.date) === month && e.kind === 'transfer' && e.amount_cents > 0).reduce((s, e) => s + e.amount_cents, 0)
+  const [paying, setPaying] = useState<{ card: Account; month: string; from: string; amount: string; date: string } | null>(null)
+  const dueOn = (a: Account, month: string) => {
+    const [y, m] = month.split('-').map(Number)
+    return `${month}-${String(Math.min(a.due_day!, new Date(Date.UTC(y, m, 0)).getUTCDate())).padStart(2, '0')}`
+  }
+
+  function startPay(a: Account) {
+    const month = monthOf(now)
+    const from = data.accounts.find(x => x.kind !== 'card' && !x.archived_at && x.currency === a.currency)
+    setPaying({ card: a, month, from: from?.id ?? '', amount: toInput(Math.max(0, bill(a, month) - paid(a, month))), date: dueOn(a, month) })
+  }
+
+  async function pay() {
+    if (!paying) return
+    const value = parseAmount(paying.amount)
+    const from = data.accounts.find(x => x.id === paying.from)
+    if (!from || Number.isNaN(value) || value <= 0) return setErr('Escolha a conta e um valor.')
+    const group_id = crypto.randomUUID()
+    const description = `Fatura ${fmtMonth(paying.month)}: ${from.name} → ${paying.card.name}`
+    const base = { kind: 'transfer', group_id, date: paying.date, description, tags: [], category_id: null }
+    try {
+      check(await supabase.from('entries').insert([
+        { ...base, account_id: from.id, amount_cents: -value },
+        { ...base, account_id: paying.card.id, amount_cents: value },
+      ]))
+      setPaying(null); setErr('')
+      notify({ msg: 'Fatura paga.' })
+      await reload()
+    } catch (e) { setErr((e as Error).message) }
+  }
 
   async function save() {
     if (!draft) return
@@ -86,13 +117,14 @@ export default function Accounts({ data, reload, notify }: PageProps) {
                     <td>{a.name}<span className="badge">{ACCOUNT_KIND[a.kind]}</span>{a.archived_at && <span className="badge">arquivada</span>}
                       {a.kind === 'card' && (
                         <div className="small muted">
-                          Fecha dia {a.closing_day}, vence dia {a.due_day}. Faturas: {months.map(m => `${fmtMonth(m)} ${formatCents(bill(a, m), cur)}`).join(' · ')}
+                          Fecha dia {a.closing_day}, vence dia {a.due_day}. Faturas: {months.map(m => `${fmtMonth(m)} ${formatCents(bill(a, m), cur)}${bill(a, m) > 0 && paid(a, m) >= bill(a, m) ? ' ✓ paga' : ''}`).join(' · ')}
                           <br />Já comprometido em parcelas futuras: {formatCents(committed(a), cur)}
                         </div>
                       )}
                     </td>
                     <td className="num">{formatCents(balance(a), cur)}</td>
                     <td className="num">
+                      {a.kind === 'card' && !a.archived_at && <button className="link" onClick={() => startPay(a)}>Pagar fatura</button>}
                       <button className="link" onClick={() => setDraft({ id: a.id, name: a.name, country: a.country, kind: a.kind, opening: toInput(a.opening_balance_cents), closing_day: String(a.closing_day ?? ''), due_day: String(a.due_day ?? '') })}>Editar</button>
                       <button className="link" onClick={() => archive(a)}>{a.archived_at ? 'Reativar' : 'Arquivar'}</button>
                       <button className="link danger" onClick={() => remove(a)}>Apagar</button>
@@ -104,6 +136,29 @@ export default function Accounts({ data, reload, notify }: PageProps) {
           </div>
         )
       })}
+      {paying && (
+        <dialog open>
+          <div className="stack">
+            <h2 style={{ marginTop: 0 }}>Pagar fatura de {paying.card.name}</h2>
+            <div className="row">
+              <label>Fatura<select value={paying.month} onChange={e => {
+                const month = e.target.value
+                setPaying({ ...paying, month, date: dueOn(paying.card, month), amount: toInput(Math.max(0, bill(paying.card, month) - paid(paying.card, month))) })
+              }}>{[-1, ...months.map((_, i) => i)].map(i => addMonths(monthOf(now), i)).map(m => <option key={m} value={m}>{fmtMonth(m)}</option>)}</select></label>
+              <label>Pagar com<select value={paying.from} onChange={e => setPaying({ ...paying, from: e.target.value })}>
+                <option value="">Escolha…</option>
+                {data.accounts.filter(x => x.kind !== 'card' && !x.archived_at && x.currency === paying.card.currency).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+            </div>
+            <div className="row">
+              <label>Valor<input inputMode="decimal" value={paying.amount} onChange={e => setPaying({ ...paying, amount: e.target.value })} /></label>
+              <label>Data<input type="date" value={paying.date} onChange={e => setPaying({ ...paying, date: e.target.value })} /></label>
+            </div>
+            <p className="small muted">Vira uma transferência da conta para o cartão: não conta como despesa outra vez.</p>
+            {err && <p className="error">{err}</p>}
+            <div className="row"><button className="primary" onClick={pay}>Pagar</button><button onClick={() => { setPaying(null); setErr('') }}>Cancelar</button></div>
+          </div>
+        </dialog>
+      )}
       {draft && (
         <dialog open>
           <div className="stack">
