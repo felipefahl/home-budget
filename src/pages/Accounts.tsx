@@ -66,15 +66,20 @@ export default function Accounts({ data, reload, notify }: PageProps) {
       check(draft.id ? await supabase.from('accounts').update(row).eq('id', draft.id) : await supabase.from('accounts').insert(row))
       const old = data.accounts.find(a => a.id === draft.id)
       let moved = 0
-      if (old?.kind === 'card' && row.closing_day && row.due_day && (old.closing_day !== row.closing_day || old.due_day !== row.due_day)) {
-        // future bills follow the new days; past bills stay as they were
-        for (const e of data.entries.filter(e => e.account_id === old.id && e.date > now && e.purchase_date && !e.deleted_at)) {
-          const date = billDueDate(e.purchase_date!, row.closing_day, row.due_day, (e.installment_no ?? 1) - 1)
-          if (date !== e.date) { check(await supabase.from('entries').update({ date }).eq('id', e.id)); moved++ }
+      if (old?.kind === 'card' && row.closing_day && row.due_day) {
+        // future bills always follow the days; past bills only on request (e.g. the days were typed wrong)
+        const moves = data.entries.filter(e => e.account_id === old.id && e.purchase_date && !e.deleted_at)
+          .map(e => ({ e, date: billDueDate(e.purchase_date!, row.closing_day!, row.due_day!, (e.installment_no ?? 1) - 1) }))
+          .filter(m => m.date !== m.e.date)
+        const past = moves.filter(m => m.e.date <= now)
+        const fixPast = past.length > 0 && confirm(`${past.length} lançamentos já vencidos estão numa fatura diferente da que estes dias dão. Mover também?`)
+        for (const m of moves) {
+          if (m.e.date <= now && !fixPast) continue
+          check(await supabase.from('entries').update({ date: m.date }).eq('id', m.e.id)); moved++
         }
       }
       setDraft(null); setErr('')
-      notify({ msg: moved ? `Conta salva. ${moved} lançamentos futuros mudaram de fatura.` : 'Conta salva.' })
+      notify({ msg: moved ? `Conta salva. ${moved} lançamentos mudaram de fatura.` : 'Conta salva.' })
       await reload()
     } catch (e) { setErr((e as Error).message) }
   }
