@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Toast } from '../App'
-import { putBack, scopeIds, softDelete, type Scope } from '../actions'
+import { isPair, putBack, scopeIds, softDelete, type Scope } from '../actions'
 import { byLabel, catLabel, check, monthOf, today, type Data } from '../data'
 import { fmtDate, fmtMonth, KIND } from '../labels'
 import { billDueDate, replanInstallments, simulatePurchase, splitInstallments } from '../lib/installments'
@@ -48,6 +48,9 @@ export default function EntryForm({ data, entry, onDone, onCancel }: Props) {
   const toAccount = data.accounts.find(a => a.id === toAccountId)
   const isCard = account?.kind === 'card'
   const tagList = tags.split(',').map(t => t.trim()).filter(Boolean)
+  // an investment with a destination account is booked like a transfer, but still counts as invested
+  const showTo = !entry && (kind === 'transfer' || kind === 'investment')
+  const twoLeg = kind === 'transfer' || (kind === 'investment' && !!toAccount)
 
   async function create(): Promise<Toast> {
     const value = parseAmount(amount)
@@ -55,7 +58,7 @@ export default function EntryForm({ data, entry, onDone, onCancel }: Props) {
     const base = { account_id: account.id, description: description.trim(), tags: tagList, category_id: categoryId || null }
     let rows: Record<string, unknown>[] = []
 
-    if (kind === 'transfer') {
+    if (twoLeg) {
       const valueIn = amountIn ? parseAmount(amountIn) : account.currency === toAccount?.currency ? value : NaN
       if (!toAccount || toAccount.id === account.id || Number.isNaN(valueIn)) throw new Error('Escolha a conta de destino e quanto chegou.')
       const group_id = crypto.randomUUID()
@@ -120,10 +123,10 @@ export default function EntryForm({ data, entry, onDone, onCancel }: Props) {
       }
     }
 
-    const ids = scopeIds(e, e.kind === 'transfer' ? 'one' : scope, data).filter(id => e.kind !== 'transfer' || id === e.id)
+    const ids = scopeIds(e, isPair(e) ? 'one' : scope, data).filter(id => !isPair(e) || id === e.id)
     const before = data.entries.filter(x => ids.includes(x.id))
     // amount, date and account only change on this row; text fields follow the scope
-    check(await supabase.from('entries').update(e.kind === 'transfer' ? { description: shared.description, tags: shared.tags } : shared).in('id', ids))
+    check(await supabase.from('entries').update(isPair(e) ? { description: shared.description, tags: shared.tags } : shared).in('id', ids))
     // a card expense keeps the purchase date and moves to that purchase's bill, same as on create
     const cardExpense = e.kind === 'expense' && isCard && account
     const dates = isInstallment ? {}
@@ -162,17 +165,18 @@ export default function EntryForm({ data, entry, onDone, onCancel }: Props) {
         )}
         <div className="row">
           <label>{isCard && kind === 'expense' ? 'Data da compra' : 'Data'}<input type="date" value={date} disabled={isInstallment} onChange={e => setDate(e.target.value)} /></label>
-          <label>{kind === 'transfer' ? 'De' : 'Conta'}<select value={accountId} disabled={entry?.kind === 'transfer'} onChange={e => setAccountId(e.target.value)}>
+          <label>{showTo ? 'De' : 'Conta'}<select value={accountId} disabled={!!entry && isPair(entry)} onChange={e => setAccountId(e.target.value)}>
             {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></label>
-          {kind === 'transfer' && !entry && (
+          {showTo && (
             <label>Para<select value={toAccountId} onChange={e => setToAccountId(e.target.value)}>
+              {kind === 'investment' && <option value="">Nenhuma (só saída)</option>}
               {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></label>
           )}
         </div>
         <div className="row">
-          <label>{kind === 'transfer' && !entry ? `Saiu (${account?.currency ?? ''})` : isInstallment ? 'Valor desta parcela' : kind === 'adjustment' ? 'Diferença (use - para diminuir)' : 'Valor'}
+          <label>{twoLeg && !entry ? `Saiu (${account?.currency ?? ''})` : isInstallment ? 'Valor desta parcela' : kind === 'adjustment' ? 'Diferença (use - para diminuir)' : 'Valor'}
             <input inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0,00" autoFocus /></label>
-          {kind === 'transfer' && !entry && (
+          {twoLeg && !entry && (
             <>
               <label>Chegou ({toAccount?.currency ?? ''})<input inputMode="decimal" value={amountIn} onChange={e => setAmountIn(e.target.value)} placeholder={account?.currency === toAccount?.currency ? 'igual' : '0,00'} /></label>
               <label>Taxa ({account?.currency ?? ''})<input inputMode="decimal" value={fee} onChange={e => setFee(e.target.value)} placeholder="0,00" /></label>
@@ -227,7 +231,7 @@ export default function EntryForm({ data, entry, onDone, onCancel }: Props) {
             {!recurrence.end_month && <button onClick={endRecurrence}>Encerrar repetição</button>}
           </div>
         )}
-        {entry?.kind === 'transfer' && <p className="small muted">Alterar o valor muda só este lado; os dois lados continuam ligados.</p>}
+        {entry && isPair(entry) && <p className="small muted">Alterar o valor muda só este lado; os dois lados continuam ligados.</p>}
         {err && <p className="error">{err}</p>}
         <div className="row">
           <button className="primary" disabled={busy} onClick={submit}>{entry?.status === 'pending' ? 'Confirmar' : 'Salvar'}</button>

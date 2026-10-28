@@ -4,11 +4,14 @@ import type { Entry } from './types'
 
 export type Scope = 'one' | 'next' | 'all'
 
-/** Which rows an edit/delete on `e` touches. Transfers always move as a whole group. */
+/** Two linked legs (from → to): transfers, and investments that went into an account. */
+export const isPair = (e: Entry) => e.kind === 'transfer' || (e.kind === 'investment' && !!e.group_id)
+
+/** Which rows an edit/delete on `e` touches. Pairs always move as a whole group. */
 export function scopeIds(e: Entry, scope: Scope, data: Data): string[] {
   if (!e.group_id) return [e.id]
   const group = data.entries.filter(x => x.group_id === e.group_id && !x.deleted_at)
-  if (e.kind === 'transfer' || group.some(x => x.kind === 'transfer') || scope === 'all') return group.map(x => x.id)
+  if (group.some(isPair) || scope === 'all') return group.map(x => x.id)
   if (scope === 'next') return group.filter(x => (x.installment_no ?? 0) >= (e.installment_no ?? 0)).map(x => x.id)
   return [e.id]
 }

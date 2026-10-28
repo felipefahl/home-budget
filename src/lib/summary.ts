@@ -25,7 +25,7 @@ export function monthSummary(entries: Entry[], o: SummaryOptions): Summary {
     if (e.deleted_at || e.status === 'pending') continue
     const v = convert(e.amount_cents, o.accountCurrency(e.account_id), o.currency, rateOn(o.rates, e.date))
     if (e.kind === 'income') income += v
-    else if (e.kind === 'investment') investment -= v
+    else if (e.kind === 'investment') { if (v < 0) investment -= v } // the leg landing in an investment account isn't new money
     else if (e.kind === 'expense') {
       if (o.categoryType(e.category_id) === 'adjustable') adjustable -= v
       else essential -= v // uncategorized counts as essential

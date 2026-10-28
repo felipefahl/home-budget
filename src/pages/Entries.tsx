@@ -89,7 +89,7 @@ export default function Entries({ data, reload, notify }: PageProps) {
     URL.revokeObjectURL(url)
   }
 
-  const totals = (['EUR', 'BRL'] as const).map(cur => [cur, rows.filter(e => acc(e.account_id)?.currency === cur && e.kind !== 'transfer').reduce((s, e) => s + e.amount_cents, 0)] as const)
+  const totals = (['EUR', 'BRL'] as const).map(cur => [cur, rows.filter(e => acc(e.account_id)?.currency === cur && e.kind !== 'transfer' && !(e.kind === 'investment' && e.amount_cents > 0)).reduce((s, e) => s + e.amount_cents, 0)] as const)
   const toggle = (id: string) => setSelected(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   return (

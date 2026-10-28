@@ -44,6 +44,7 @@ test('monthSummary buckets, converts, and ignores transfers, adjustments, pendin
       e({ amount_cents: -7777, status: 'pending' }),
       e({ amount_cents: -8888, deleted_at: '2027-01-09T00:00:00Z' }),
       e({ kind: 'investment', amount_cents: -50000 }),
+      e({ kind: 'investment', account_id: 'br', amount_cents: 300000 }), // landing leg, not counted again
     ],
     opts,
   )
