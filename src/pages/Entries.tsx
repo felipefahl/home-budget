@@ -89,7 +89,9 @@ export default function Entries({ data, reload, notify }: PageProps) {
     URL.revokeObjectURL(url)
   }
 
-  const totals = (['EUR', 'BRL'] as const).map(cur => [cur, rows.filter(e => acc(e.account_id)?.currency === cur && e.kind !== 'transfer' && !(e.kind === 'investment' && e.amount_cents > 0)).reduce((s, e) => s + e.amount_cents, 0)] as const)
+  // one account: its real movement; all accounts: same rule as the dashboard (no transfers, adjustments or investment landing legs)
+  const counts = (e: Entry) => !!accountId || (e.kind !== 'transfer' && e.kind !== 'adjustment' && !(e.kind === 'investment' && e.amount_cents > 0))
+  const totals = (['EUR', 'BRL'] as const).map(cur => [cur, rows.filter(e => acc(e.account_id)?.currency === cur && counts(e)).reduce((s, e) => s + e.amount_cents, 0)] as const)
   const toggle = (id: string) => setSelected(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   return (
@@ -123,7 +125,7 @@ export default function Entries({ data, reload, notify }: PageProps) {
           {people.map(p => <option key={p}>{p}</option>)}</select></label>
       </div>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-        <span className="muted small">{rows.length} lançamentos · saldo do período {totals.map(([c, v]) => formatCents(v, c)).join(' · ')} (sem transferências)</span>
+        <span className="muted small">{rows.length} lançamentos · saldo do período {totals.map(([c, v]) => formatCents(v, c)).join(' · ')} {accountId ? '(movimento da conta)' : '(sem transferências e ajustes)'}</span>
         {selected.size > 0 && (
           <label className="inline">Mudar categoria de {selected.size}:
             <select value="" onChange={e => bulkCategory(e.target.value)}><option value="" disabled>Escolha…</option>
